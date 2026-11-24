@@ -1,0 +1,17 @@
+{
+  "id": "episode-1",
+  "title": "Death First Search - Episode 1",
+  "subtitle": "切斷 agent 通往 gateway 的連結",
+  "platform": "CodinGame",
+  "language": "C++",
+  "standard": "C++11",
+  "topics": [
+    "圖論",
+    "BFS",
+    "貪心"
+  ],
+  "summary": "從 agent 所在節點做 BFS，第一次碰到 gateway 時，就把「父節點－gateway」這條邊剪掉；因為 BFS 保證這是最短路徑上的最後一條連結，剪它最有效。",
+  "complexity": "每回合 O(N + L)",
+  "code": "#include <iostream>\n#include <vector>\n#include <queue>\n#include <algorithm>\nusing namespace std;\n\nint N, L, E;\nvector<vector<int>> adj;\nvector<bool> isGateway;\n\n// 從 agent 位置 BFS，找出「通往最近 gateway 的最後一條連結」\npair<int, int> findLinkToCut(int start)\n{\n    vector<bool> visited(N, false);\n    queue<int> q;\n    q.push(start);\n    visited[start] = true;\n\n    while (!q.empty())\n    {\n        int u = q.front();\n        q.pop();\n        for (int v : adj[u])\n        {\n            if (isGateway[v]) return make_pair(u, v);   // 這一刀直接斷開 gateway\n            if (!visited[v])\n            {\n                visited[v] = true;\n                q.push(v);\n            }\n        }\n    }\n    return make_pair(-1, -1);\n}\n\nvoid cutLink(int a, int b)\n{\n    adj[a].erase(remove(adj[a].begin(), adj[a].end(), b), adj[a].end());\n    adj[b].erase(remove(adj[b].begin(), adj[b].end(), a), adj[b].end());\n}\n\nint main()\n{\n    cin >> N >> L >> E;\n    adj.assign(N, vector<int>());\n    isGateway.assign(N, false);\n\n    for (int i = 0; i < L; i++)\n    {\n        int a, b;\n        cin >> a >> b;\n        adj[a].push_back(b);\n        adj[b].push_back(a);\n    }\n\n    for (int i = 0; i < E; i++)\n    {\n        int g;\n        cin >> g;\n        isGateway[g] = true;\n    }\n\n    while (true)\n    {\n        int SI;\n        if (!(cin >> SI)) break;\n\n        pair<int, int> link = findLinkToCut(SI);\n        if (link.first == -1) break;\n\n        cout << link.first << \" \" << link.second << endl;\n        cutLink(link.first, link.second);\n    }\n    return 0;\n}\n",
+  "lines": 75
+}

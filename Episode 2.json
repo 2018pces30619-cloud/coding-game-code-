@@ -1,0 +1,205 @@
+#include <bits/stdc++.h>
+using namespace std;
+typedef unsigned long long u64;
+ 
+/* ===== Death First Search - Episode 2 =====
+ * 關鍵觀察：
+ *   1. 普通節點之間的連結不能剪 => 普通節點構成的圖 H 永遠不變，距離可一次預算好。
+ *   2. 對 agent 而言，只有「每個普通節點還剩幾條 gateway 連結 c[u]」有意義，
+ *      它永遠走向「最近的、c>0 的節點」，然後進 gateway。
+ *   3. 於是整題變成：狀態 = (agent 位置, c[]) 的雙人博弈。
+ *      我方每回合讓某個 c[u]--，agent 再往最近目標走一步。
+ *   做法：把 agent 當成「最壞情況」(平手時它任選一條最短路)，
+ *        用 DFS + 置換表 (Zobrist) 找必勝剪法；排序用 laxity = d+1-c。
+ *        置換表跨回合保留（狀態具馬可夫性）。超時才退回 laxity 貪心。
+ */
+ 
+struct Solver {
+    int N = 0, L = 0, E = 0;
+    vector<pair<int, int>> links;
+    vector<char> isGw;
+    vector<vector<int>> H;           // 普通節點的鄰接表（固定）
+    vector<vector<int>> gwLinks;     // 每個普通節點尚存的 gateway 連結編號
+    vector<int> c;                   // c[u] = gwLinks[u].size()
+    vector<vector<short>> dist;      // 普通節點間最短距離，-1 = 不通
+    vector<int> active;              // 一開始 c>0 的節點
+    vector<u64> hp;                  // agent 位置的 Zobrist
+    u64 hc = 0;                      // c[] 的 Zobrist（c=0 不貢獻）
+    // 固定大小置換表（不 rehash，避免偶發卡頓）。entry = (key 的高 63 位) | 結果 bit
+    static const int TB = 21;
+    vector<u64> tab;
+    bool tget(u64 key, bool& res) const {
+        u64 e = tab[key >> (64 - TB)];
+        if (e != 0 && (e & ~1ULL) == (key & ~1ULL)) { res = e & 1ULL; return true; }
+        return false;
+    }
+    void tput(u64 key, bool res) { tab[key >> (64 - TB)] = (key & ~1ULL) | (res ? 1ULL : 0ULL); }
+ 
+    chrono::steady_clock::time_point deadline;
+    bool timedOut = false;
+    long long cnt = 0;
+    int budgetMs = 90;
+ 
+    static u64 mix(u64 x) {
+        x += 0x9e3779b97f4a7c15ULL;
+        x = (x ^ (x >> 30)) * 0xbf58476d1ce4e5b9ULL;
+        x = (x ^ (x >> 27)) * 0x94d049bb133111ebULL;
+        return x ^ (x >> 31);
+    }
+    u64 hz(int u, int k) const { return k ? mix((u64)u * 1000003ULL + (u64)k * 7919ULL + 12345ULL) : 0ULL; }
+ 
+    void init(int n, int l, int e, const vector<pair<int, int>>& lk, const vector<int>& gws) {
+        N = n; L = l; E = e; links = lk;
+        isGw.assign(N, 0);
+        for (int g : gws) isGw[g] = 1;
+        H.assign(N, {});
+        gwLinks.assign(N, {});
+        for (int i = 0; i < L; i++) {
+            int a = links[i].first, b = links[i].second;
+            if (isGw[a] && isGw[b]) continue;            // gateway-gateway：沒意義
+            if (isGw[a]) gwLinks[b].push_back(i);
+            else if (isGw[b]) gwLinks[a].push_back(i);
+            else { H[a].push_back(b); H[b].push_back(a); }
+        }
+        c.assign(N, 0);
+        for (int u = 0; u < N; u++) {
+            c[u] = (int)gwLinks[u].size();
+            if (c[u] > 0) active.push_back(u);
+            hc ^= hz(u, c[u]);
+        }
+        tab.assign(1u << TB, 0);
+        hp.resize(N);
+        for (int u = 0; u < N; u++) hp[u] = mix(0xabcdef12345ULL + u);
+ 
+        dist.assign(N, vector<short>(N, -1));
+        for (int s = 0; s < N; s++) {
+            if (isGw[s]) continue;
+            vector<int> q; q.push_back(s); dist[s][s] = 0;
+            for (size_t h = 0; h < q.size(); h++) {
+                int u = q[h];
+                for (int w : H[u]) if (dist[s][w] < 0) { dist[s][w] = dist[s][u] + 1; q.push_back(w); }
+            }
+        }
+    }
+ 
+    void dec(int u) { hc ^= hz(u, c[u]); c[u]--; hc ^= hz(u, c[u]); }
+    void inc(int u) { hc ^= hz(u, c[u]); c[u]++; hc ^= hz(u, c[u]); }
+ 
+    bool checkTime() {
+        if ((++cnt & 127) == 0 && chrono::steady_clock::now() > deadline) timedOut = true;
+        return timedOut;
+    }
+ 
+    // 我方可選的剪法（已排序）。回傳 false 表示已無任何目標（我們贏）
+    // forced: c[p]==1 時只能剪 p
+    bool genCands(int p, vector<int>& out) {
+        out.clear();
+        if (c[p] >= 2) return true;                     // 必輸，不給候選
+        vector<array<int, 4>> v;                        // (laxity, d, -c, u)
+        int passNode = -1;
+        bool any = false;
+        for (int u : active) {
+            if (c[u] <= 0) continue;
+            int d = dist[p][u];
+            if (d < 0) { if (passNode < 0) passNode = u; continue; }
+            any = true;
+            v.push_back({d + 1 - c[u], d, -c[u], u});
+        }
+        if (!any) return false;
+        if (c[p] == 1) { out.push_back(p); return true; }
+        sort(v.begin(), v.end());
+        for (auto& a : v) out.push_back(a[3]);
+        if (passNode >= 0) out.push_back(passNode);     // 純粹拖一步（剪不相干的連結）
+        return true;
+    }
+ 
+    // 我方剛剪完，agent 在 p（c[p]==0）。回傳「對所有 agent 走法我們都贏」
+    bool agentMoves(int p) {
+        int D = INT_MAX;
+        for (int x : active) if (c[x] > 0) { int d = dist[p][x]; if (d >= 0 && d < D) D = d; }
+        if (D == INT_MAX) return true;                  // agent 到不了任何 gateway
+        vector<int> nxt;
+        for (int x : active) if (c[x] > 0 && dist[p][x] == D)
+            for (int w : H[p]) if (dist[w][x] == D - 1) nxt.push_back(w);
+        sort(nxt.begin(), nxt.end());
+        nxt.erase(unique(nxt.begin(), nxt.end()), nxt.end());
+        for (int w : nxt) if (c[w] >= 2) return false;  // 先找最容易反駁的
+        for (int w : nxt) {
+            if (!win(w)) return false;
+            if (timedOut) return false;
+        }
+        return true;
+    }
+ 
+    // 輪到我方，agent 在 p。回傳是否必勝
+    bool win(int p) {
+        if (c[p] >= 2) return false;
+        if (checkTime()) return false;
+        u64 key = hc ^ hp[p];
+        bool hit;
+        if (tget(key, hit)) return hit;
+        vector<int> cand;
+        if (!genCands(p, cand)) { tput(key, true); return true; }
+        bool res = false;
+        for (int u : cand) {
+            dec(u);
+            bool r = agentMoves(p);
+            inc(u);
+            if (timedOut) return false;
+            if (r) { res = true; break; }
+        }
+        tput(key, res);
+        return res;
+    }
+ 
+    // 回傳 (普通節點, gateway) 要剪的連結
+    pair<int, int> choose(int p) {
+        deadline = chrono::steady_clock::now() + chrono::milliseconds(budgetMs);
+        timedOut = false; cnt = 0;
+        vector<int> cand;
+        int pick = -1;
+        if (genCands(p, cand)) {
+            if (cand.empty()) {                         // c[p]>=2：已無力回天，仍剪 p
+                pick = p;
+            } else {
+                for (int u : cand) {
+                    dec(u);
+                    bool r = agentMoves(p);
+                    inc(u);
+                    if (timedOut) break;
+                    if (r) { pick = u; break; }
+                }
+                if (pick < 0) pick = cand[0];           // 超時或此局無解：用 laxity 貪心
+            }
+        }
+        if (pick < 0) {                                 // 沒有目標：隨便剪一條 gateway 連結（理論上不會發生）
+            for (int u = 0; u < N; u++) if (c[u] > 0) { pick = u; break; }
+        }
+        if (pick < 0) return {-1, -1};
+        int li = gwLinks[pick].back();
+        gwLinks[pick].pop_back();
+        dec(pick);
+        int a = links[li].first, b = links[li].second;
+        int g = isGw[a] ? a : b;
+        return {pick, g};
+    }
+};
+ 
+int main() {
+    int N, L, E;
+    cin >> N >> L >> E;
+    vector<pair<int, int>> lk(L);
+    for (auto& e : lk) cin >> e.first >> e.second;
+    vector<int> gws(E);
+    for (auto& g : gws) cin >> g;
+ 
+    Solver S;
+    S.init(N, L, E, lk, gws);
+    int SI;
+    while (cin >> SI) {
+        auto r = S.choose(SI);
+        if (r.first < 0) { cout << "0 0" << endl; continue; }
+        cout << r.first << " " << r.second << endl;
+    }
+    return 0;
+}

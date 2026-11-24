@@ -1,0 +1,57 @@
+#include <iostream>//cin、cout、endl
+#include <string>//string、
+#include <map>//map
+
+using namespace std;
+
+// 對單一位元執行閘門運算
+// a, b：兩個輸入位元 (0 或 1)；type：閘門類型
+bool evalGate(const string& type, bool a, bool b)
+{
+    if (type == "AND")  return a && b;      // 都為 1 才為 1
+    if (type == "OR")   return a || b;      // 任一為 1 就為 1
+    if (type == "XOR")  return a != b;      // 兩者不同才為 1
+    if (type == "NAND") return !(a && b);   // AND 取反
+    if (type == "NOR")  return !(a || b);   // OR 取反
+    return a == b;                          // NXOR：XOR 取反，即兩者相同才為 1
+}
+
+int main()
+{
+    int n, m;
+    cin >> n >> m;  // n：輸入信號數量；m：輸出信號數量
+
+    // 用 map 儲存「信號名稱 -> 信號字串」，方便之後用名稱查詢
+    map<string, string> signals;
+
+    // 讀取 n 個輸入信號 
+    for (int i = 0; i < n; i++)
+    {
+        string name, data;
+        cin >> name >> data;
+        signals[name] = data;
+    }
+
+    // 逐一處理 m 個輸出信號
+    for (int i = 0; i < m; i++)
+    {
+        string outName, type, in1, in2;
+        cin >> outName >> type >> in1 >> in2;
+
+        const string& a = signals[in1];  // 第一個輸入信號
+        const string& b = signals[in2];  // 第二個輸入信號
+        string result;                   // 存放運算後的輸出信號
+
+        // 逐位置運算：'-' 視為 1，'_' 視為 0
+        for (size_t k = 0; k < a.size(); k++)
+        {
+            bool out = evalGate(type, a[k] == '-', b[k] == '-');
+            result += out ? '-' : '_';   // 結果轉回字元
+        }
+
+        // 輸出「名稱 信號」，順序與輸入一致
+        cout << outName << " " << result << endl;
+    }
+
+    return 0;
+}
