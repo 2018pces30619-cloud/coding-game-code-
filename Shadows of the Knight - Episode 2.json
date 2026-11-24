@@ -1,0 +1,207 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+int main() {
+    ios::sync_with_stdio(false);
+    cin.tie(nullptr);
+
+    int W, H, N, startX, startY;
+    cin >> W >> H >> N;
+    cin >> startX >> startY;
+
+    vector<int> possibleX(W), possibleY(H);
+    iota(possibleX.begin(), possibleX.end(), 0);
+    iota(possibleY.begin(), possibleY.end(), 0);
+
+    int previousX = startX, previousY = startY;
+    int currentX = startX, currentY = startY;
+    int lastAxis = -1;
+
+    auto eraseValue = [](vector<int>& v, int value) {
+        v.erase(remove(v.begin(), v.end(), value), v.end());
+    };
+
+    auto filterOneAxis = [](vector<int>& candidates,
+                            int previous, int current,
+                            const string& info) {
+        vector<int> kept;
+        for (int bomb : candidates) {
+            int oldDistance = abs(bomb - previous);
+            int newDistance = abs(bomb - current);
+            bool keep = false;
+            if (info == "WARMER") keep = newDistance < oldDistance;
+            else if (info == "COLDER") keep = newDistance > oldDistance;
+            else if (info == "SAME") keep = newDistance == oldDistance;
+            if (keep) kept.push_back(bomb);
+        }
+        if (!kept.empty()) candidates.swap(kept);
+    };
+
+    auto filterYWithKnownX = [](vector<int>& candidates, int bombX,
+                                int oldX, int oldY, int newX, int newY,
+                                const string& info) {
+        vector<int> kept;
+        for (int bombY : candidates) {
+            long long oldDX = (long long)bombX - oldX;
+            long long newDX = (long long)bombX - newX;
+            long long oldDY = (long long)bombY - oldY;
+            long long newDY = (long long)bombY - newY;
+            long long oldD2 = oldDX * oldDX + oldDY * oldDY;
+            long long newD2 = newDX * newDX + newDY * newDY;
+
+            bool keep = false;
+            if (info == "WARMER") keep = newD2 < oldD2;
+            else if (info == "COLDER") keep = newD2 > oldD2;
+            else if (info == "SAME") keep = newD2 == oldD2;
+            if (keep) kept.push_back(bombY);
+        }
+        if (!kept.empty()) candidates.swap(kept);
+    };
+
+    auto nextCoordinate = [](const vector<int>& candidates,
+                             int current, int maxCoord) {
+        int lo = candidates.front();
+        int hi = candidates.back();
+        int next = lo + hi - current;
+
+        // The mirrored point may be outside. Move into the candidate interval
+        // so the following jump can make an informative split.
+        if (next < 0 || next > maxCoord)
+            next = (lo + hi) / 2;
+
+        if (next == current) {
+            if (current < maxCoord) next = current + 1;
+            else next = current - 1;
+        }
+        return next;
+    };
+
+    auto nextYWithKnownX = [](const vector<int>& candidates, int bombX,
+                              int oldX, int oldY, int newX, int maxY) {
+        int n = (int)candidates.size();
+        int loY = candidates.front();
+        int hiY = candidates.back();
+
+        auto delta = [&](int bombY, int newY) -> long long {
+            long long oldDX = (long long)bombX - oldX;
+            long long newDX = (long long)bombX - newX;
+            long long oldDY = (long long)bombY - oldY;
+            long long newDY = (long long)bombY - newY;
+            return newDX * newDX + newDY * newDY
+                 - oldDX * oldDX - oldDY * oldDY;
+        };
+
+        auto firstTrue = [&](auto predicate, int newY) {
+            int left = 0, right = n;
+            while (left < right) {
+                int mid = (left + right) / 2;
+                if (predicate(delta(candidates[mid], newY)))
+                    right = mid;
+                else
+                    left = mid + 1;
+            }
+            return left;
+        };
+
+        int bestY = oldY;
+        int bestWorst = INT_MAX;
+        long long bestSquares = LLONG_MAX;
+        int bestCenterDistance = INT_MAX;
+
+        for (int newY = 0; newY <= maxY; ++newY) {
+            if (newY == oldY && newX == oldX) continue;
+
+            int warmer = 0, colder = 0, same = 0;
+
+            if (newY == oldY) {
+                long long d = delta(candidates[0], newY);
+                if (d < 0) warmer = n;
+                else if (d > 0) colder = n;
+                else same = n;
+            } else if (newY > oldY) {
+                int firstWarmer = firstTrue([](long long d) { return d < 0; }, newY);
+                int firstNotColder = firstTrue([](long long d) { return d <= 0; }, newY);
+                colder = firstNotColder;
+                same = firstWarmer - firstNotColder;
+                warmer = n - firstWarmer;
+            } else {
+                int firstNotWarmer = firstTrue([](long long d) { return d >= 0; }, newY);
+                int firstColder = firstTrue([](long long d) { return d > 0; }, newY);
+                warmer = firstNotWarmer;
+                same = firstColder - firstNotWarmer;
+                colder = n - firstColder;
+            }
+
+            // If the chosen window is the bomb, that branch wins immediately.
+            auto it = lower_bound(candidates.begin(), candidates.end(), newY);
+            if (newX == bombX && it != candidates.end() && *it == newY) {
+                long long d = delta(newY, newY);
+                if (d < 0) --warmer;
+                else if (d > 0) --colder;
+                else --same;
+            }
+
+            int worst = max({warmer, colder, same});
+            long long squares = 1LL * warmer * warmer
+                              + 1LL * colder * colder
+                              + 1LL * same * same;
+            int centerDistance = abs(2 * newY - loY - hiY);
+
+            if (worst < bestWorst ||
+                (worst == bestWorst && squares < bestSquares) ||
+                (worst == bestWorst && squares == bestSquares &&
+                 centerDistance < bestCenterDistance)) {
+                bestWorst = worst;
+                bestSquares = squares;
+                bestCenterDistance = centerDistance;
+                bestY = newY;
+            }
+        }
+
+        if (bestY == oldY && newX == oldX) {
+            if (oldY < maxY) ++bestY;
+            else --bestY;
+        }
+        return bestY;
+    };
+
+    string info;
+    while (cin >> info) {
+        if (info != "UNKNOWN" && lastAxis == 0) {
+            if (possibleY.size() == 1 && currentY == possibleY[0])
+                eraseValue(possibleX, currentX);
+            filterOneAxis(possibleX, previousX, currentX, info);
+        } else if (info != "UNKNOWN" && lastAxis == 1 &&
+                   possibleX.size() == 1) {
+            int knownX = possibleX[0];
+            if (currentX == knownX)
+                eraseValue(possibleY, currentY);
+            filterYWithKnownX(possibleY, knownX,
+                              previousX, previousY, currentX, currentY, info);
+        }
+
+        int nextX = currentX;
+        int nextY = currentY;
+
+        if (possibleX.size() == 1 && possibleY.size() == 1) {
+            nextX = possibleX[0];
+            nextY = possibleY[0];
+        } else if (possibleX.size() > 1) {
+            nextX = nextCoordinate(possibleX, currentX, W - 1);
+            lastAxis = 0;
+        } else {
+            nextX = possibleX[0];
+            nextY = nextYWithKnownX(possibleY, possibleX[0],
+                                    currentX, currentY, nextX, H - 1);
+            lastAxis = 1;
+        }
+
+        cout << nextX << ' ' << nextY << endl;
+        previousX = currentX;
+        previousY = currentY;
+        currentX = nextX;
+        currentY = nextY;
+    }
+
+    return 0;
+}

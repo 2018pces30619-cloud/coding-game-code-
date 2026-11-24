@@ -1,0 +1,36 @@
+#include <iostream>
+#include <string>
+using namespace std;
+
+int main()
+{
+    int W, H, N, X, Y;
+    cin >> W >> H >> N >> X >> Y;
+
+    // 可能的炸彈位置範圍（含邊界）
+    int xMin = 0, xMax = W - 1;
+    int yMin = 0, yMax = H - 1;
+
+    while (true)
+    {
+        string bombDir;
+        if (!(cin >> bombDir)) break;
+
+        // 先用「目前位置」收窄範圍（方向非空代表炸彈不在目前位置）
+        if (bombDir.find('U') != string::npos)       yMax = Y - 1;
+        else if (bombDir.find('D') != string::npos)  yMin = Y + 1;
+        else { yMin = Y; yMax = Y; }                 // 無垂直分量：同一列
+
+        if (bombDir.find('L') != string::npos)       xMax = X - 1;
+        else if (bombDir.find('R') != string::npos)  xMin = X + 1;
+        else { xMin = X; xMax = X; }                 // 無水平分量：同一行
+
+        // 二分法取中點
+        X = (xMin + xMax) / 2;
+        Y = (yMin + yMax) / 2;
+
+        cout << X << " " << Y << endl;
+    }
+
+    return 0;
+}

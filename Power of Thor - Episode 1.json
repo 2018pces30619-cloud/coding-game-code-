@@ -1,0 +1,40 @@
+#include <iostream>
+#include <string>
+
+
+using namespace std;
+
+int main()
+ {
+    //讀取初始化數據
+    int lightX, lightY;   
+    int initialTX, initialTY;
+    cin >> lightX >> lightY >> initialTX >> initialTY;
+    //主程式
+    while (true)
+    {
+        int remainingTurns;
+        cin >> remainingTurns;
+        string move="";
+        
+        if (initialTY > lightY)
+        {  
+            move +='N'; initialTY--;
+        }
+        else if(initialTY < lightY)
+        {
+            move +='S';initialTY++;
+        }
+         if (initialTX > lightX)
+        {  
+            move +='W';initialTX--;
+        }
+        else if (initialTX < lightX)
+        {
+            move +='E';initialTX++;
+        }
+        cout << move << endl;
+
+    }
+    return 0;
+}
